@@ -1,0 +1,24 @@
+name: my stream
+steps:
+  - step:
+    name: echo
+    image: alpine
+    input: .
+    output: .
+    command:
+      - sh
+      - -c
+      - echo Hello, $TARGET
+    environment:
+      - TARGET=world
+  - step:
+    name: echo
+    image: alpine
+    input: .
+    output: .
+    command:
+      - sh
+      - -c
+      - echo Hello, $TARGET
+    environment:
+      - TARGET=again
