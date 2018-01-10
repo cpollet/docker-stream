@@ -10,7 +10,9 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types"
+	"regexp"
 	"io"
+	"sync"
 )
 
 type Config struct {
@@ -49,36 +51,42 @@ func main() {
 		panic(err)
 	}
 
+	reg, err := regexp.Compile("[^a-zA-Z0-9]+")
+	if err != nil {
+		panic(err)
+	}
+
+	var wg sync.WaitGroup
+
 	for _, step := range config.Steps {
+		wg.Add(1)
+
 		containerConfig := &container.Config{
-			Image: step.Image,
-			Cmd:   step.Command,
-			Env:   step.Environment,
+			Image:        step.Image,
+			Cmd:          step.Command,
+			Env:          step.Environment,
+			AttachStdout: false,
 		}
 		var hostConfig *container.HostConfig = nil
 		var networkConfig *network.NetworkingConfig = nil
-		containerName := ""
+		containerName := reg.ReplaceAllString(config.Name, "-") + "_" + reg.ReplaceAllString(step.Name, "-")
 
-		resp, err := cli.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, containerName)
-
+		containerCreateResponse, err := cli.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, containerName)
 		if err != nil {
 			panic(err)
 		}
 
-		if err := cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+		// TODO attach container
+
+		if err := cli.ContainerStart(ctx, containerCreateResponse.ID, types.ContainerStartOptions{}); err != nil {
 			panic(err)
 		}
 
-		statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
-		select {
-		case err := <-errCh:
-			if err != nil {
-				panic(err)
-			}
-		case <-statusCh:
-		}
+		status := syncWaitExit(cli, ctx, containerCreateResponse)
+		fmt.Printf("status %s: %#v\n", containerName, status)
+		wg.Done()
 
-		out, err := cli.ContainerLogs(ctx, resp.ID, types.ContainerLogsOptions{ShowStdout: true})
+		out, err := cli.ContainerLogs(ctx, containerCreateResponse.ID, types.ContainerLogsOptions{ShowStdout: true})
 		if err != nil {
 			panic(err)
 		}
@@ -87,4 +95,28 @@ func main() {
 
 		// TODO delete container
 	}
+
+	wg.Wait()
+}
+
+func syncWaitExit(cli *client.Client, ctx context.Context, containerCreateResponse container.ContainerCreateCreatedBody) int {
+	return <-waitExit(cli, ctx, containerCreateResponse)
+}
+
+func waitExit(cli *client.Client, ctx context.Context, containerCreateResponse container.ContainerCreateCreatedBody) chan int {
+	statusChan := make(chan int)
+
+	resultChan, errChan := cli.ContainerWait(ctx, containerCreateResponse.ID, container.WaitConditionNextExit)
+	go func() {
+		select {
+		case err := <-errChan:
+			if err != nil {
+				panic(err)
+			}
+		case result := <-resultChan:
+			statusChan <- int(result.StatusCode)
+		}
+	}()
+
+	return statusChan
 }

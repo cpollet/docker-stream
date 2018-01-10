@@ -1,18 +1,18 @@
 name: my stream
 steps:
   - step:
-    name: echo
+    name: echo 1
     image: alpine
     input: .
     output: .
     command:
       - sh
       - -c
-      - echo Hello, $TARGET
+      - sleep 3
     environment:
       - TARGET=world
   - step:
-    name: echo
+    name: echo 2
     image: alpine
     input: .
     output: .
