@@ -1,4 +1,5 @@
-name: my stream
+version: '0'
+name: stream
 steps:
   - step:
     name: echo 1
@@ -7,16 +8,12 @@ steps:
     output: .
     command:
       - echo a; sleep 3; echo b; sleep 3; echo c
-    environment:
-      - TARGET=world
   - step:
     name: echo 2
     image: alpine
     input: .
     output: .
     command:
-      - sh
-      - -c
       - echo Hello, $TARGET
     environment:
       - TARGET=world

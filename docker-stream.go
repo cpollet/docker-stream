@@ -18,8 +18,9 @@ import (
 )
 
 type Config struct {
-	Name  string
-	Steps []Step
+	Version string
+	Name    string
+	Steps   []Step
 }
 
 type Step struct {
@@ -36,6 +37,10 @@ func main() {
 
 	if err != nil {
 		panic(err)
+	}
+
+	if config.Version != "0" {
+		panic(fmt.Sprintf("Invalid version: %v", config.Version))
 	}
 
 	fmt.Printf("Starting stream %#v\n", config.Name)
@@ -55,44 +60,49 @@ func main() {
 	fgBlue := color.New(color.FgBlue).SprintfFunc()
 
 	for _, step := range config.Steps {
-		wg.Add(1)
-
 		containerName := reg.ReplaceAllString(config.Name, "-") + "_" + reg.ReplaceAllString(step.Name, "-")
 		stdoutContainerName := fgBlue("%s%s|", containerName, strings.Repeat(" ", 20-len(containerName)))
 
-		containerConfig := &container.Config{
-			Image:        step.Image,
-			Cmd:          append([]string{"sh", "-c"}, step.Command...),
-			Env:          step.Environment,
-			AttachStdout: true,
-			AttachStderr: true,
-		}
-		var hostConfig *container.HostConfig = nil
-		var networkConfig *network.NetworkingConfig = nil
-
-		fmt.Printf("%s create\n", stdoutContainerName)
-		containerCreateResponse, err := dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, containerName)
-		if err != nil {
-			panic(err)
-		}
-
-		closeStreamFunc := attach(ctx, dockerClient, containerCreateResponse.ID)
-
-		fmt.Printf("%s start\n", stdoutContainerName)
-		if err := dockerClient.ContainerStart(ctx, containerCreateResponse.ID, types.ContainerStartOptions{}); err != nil {
-			panic(err)
-		}
-
-		status := syncWaitExit(dockerClient, ctx, containerCreateResponse)
-		fmt.Printf("%s exited with status %#v\n", stdoutContainerName, status)
-
-		closeStreamFunc()
+		wg.Add(1)
+		runStep(ctx, dockerClient, step, stdoutContainerName, containerName)
 		wg.Done()
 
 		// TODO delete container
 	}
 
 	wg.Wait()
+}
+
+func runStep(ctx context.Context, dockerClient *client.Client, step Step, stdoutContainerName string, containerName string) {
+	containerConfig := &container.Config{
+		Image:        step.Image,
+		Cmd:          append([]string{"sh", "-c"}, step.Command...),
+		Env:          step.Environment,
+		AttachStdout: true,
+		AttachStderr: true,
+	}
+
+	var hostConfig *container.HostConfig = nil
+	var networkConfig *network.NetworkingConfig = nil
+
+	fmt.Printf("%s create\n", stdoutContainerName)
+	containerCreateResponse, err := dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, containerName)
+
+	if err != nil {
+		panic(err)
+	}
+
+	closeStreamFunc := attach(ctx, dockerClient, containerCreateResponse.ID)
+	defer closeStreamFunc()
+
+	fmt.Printf("%s start\n", stdoutContainerName)
+
+	if err := dockerClient.ContainerStart(ctx, containerCreateResponse.ID, types.ContainerStartOptions{}); err != nil {
+		panic(err)
+	}
+
+	status := syncWaitExit(dockerClient, ctx, containerCreateResponse)
+	fmt.Printf("%s exited with status %#v\n", stdoutContainerName, status)
 }
 
 func readConfig(filename string) (error, *Config) {
