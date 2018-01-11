@@ -3,30 +3,32 @@ package main
 import (
 	"fmt"
 	"gopkg.in/yaml.v2"
-	"github.com/docker/docker/client"
 	"io/ioutil"
 	"os"
 	"context"
+	"regexp"
+	"sync"
+	"strings"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types"
-	"regexp"
-	"io"
-	"sync"
+	"github.com/docker/docker/client"
 	"github.com/fatih/color"
-	"strings"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 type Config struct {
-	Name string
-	Steps []struct {
-		Name        string
-		Image       string
-		Input       string
-		Output      string
-		Command     []string
-		Environment []string
-	}
+	Name  string
+	Steps []Step
+}
+
+type Step struct {
+	Name        string
+	Image       string
+	Input       string
+	Output      string
+	Command     []string
+	Environment []string
 }
 
 func main() {
@@ -39,7 +41,7 @@ func main() {
 	fmt.Printf("Starting stream %#v\n", config.Name)
 
 	ctx := context.Background()
-	cli, err := client.NewEnvClient()
+	dockerClient, err := client.NewEnvClient()
 	if err != nil {
 		panic(err)
 	}
@@ -55,46 +57,44 @@ func main() {
 	for _, step := range config.Steps {
 		wg.Add(1)
 
-		containerConfig := &container.Config{
-			Image:        step.Image,
-			Cmd:          step.Command,
-			Env:          step.Environment,
-			AttachStdout: false,
-		}
-		var hostConfig *container.HostConfig = nil
-		var networkConfig *network.NetworkingConfig = nil
 		containerName := reg.ReplaceAllString(config.Name, "-") + "_" + reg.ReplaceAllString(step.Name, "-")
 		stdoutContainerName := fgBlue("%s%s|", containerName, strings.Repeat(" ", 20-len(containerName)))
 
+		containerConfig := &container.Config{
+			Image:        step.Image,
+			Cmd:          append([]string{"sh", "-c"}, step.Command...),
+			Env:          step.Environment,
+			AttachStdout: true,
+			AttachStderr: true,
+		}
+		var hostConfig *container.HostConfig = nil
+		var networkConfig *network.NetworkingConfig = nil
+
 		fmt.Printf("%s create\n", stdoutContainerName)
-		containerCreateResponse, err := cli.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, containerName)
+		containerCreateResponse, err := dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, containerName)
 		if err != nil {
 			panic(err)
 		}
 
-		// TODO attach container
+		closeStreamFunc := attach(ctx, dockerClient, containerCreateResponse.ID)
 
 		fmt.Printf("%s start\n", stdoutContainerName)
-		if err := cli.ContainerStart(ctx, containerCreateResponse.ID, types.ContainerStartOptions{}); err != nil {
+		if err := dockerClient.ContainerStart(ctx, containerCreateResponse.ID, types.ContainerStartOptions{}); err != nil {
 			panic(err)
 		}
 
-		status := syncWaitExit(cli, ctx, containerCreateResponse)
+		status := syncWaitExit(dockerClient, ctx, containerCreateResponse)
 		fmt.Printf("%s exited with status %#v\n", stdoutContainerName, status)
+
+		closeStreamFunc()
 		wg.Done()
-
-		out, err := cli.ContainerLogs(ctx, containerCreateResponse.ID, types.ContainerLogsOptions{ShowStdout: true})
-		if err != nil {
-			panic(err)
-		}
-
-		io.Copy(os.Stdout, out)
 
 		// TODO delete container
 	}
 
 	wg.Wait()
 }
+
 func readConfig(filename string) (error, *Config) {
 	source, err := ioutil.ReadFile(filename)
 
@@ -105,6 +105,29 @@ func readConfig(filename string) (error, *Config) {
 	var config Config
 	err = yaml.Unmarshal(source, &config)
 	return err, &config
+}
+
+func attach(ctx context.Context, client *client.Client, id string) func() {
+	attachOptions := types.ContainerAttachOptions{
+		Stream: true,
+		Stdout: true,
+		Stderr: true,
+	}
+
+	attachResponse, err := client.ContainerAttach(ctx, id, attachOptions)
+
+	if err != nil {
+		panic(err)
+	}
+
+	go func() {
+		_, err = stdcopy.StdCopy(os.Stdout, os.Stderr, attachResponse.Reader)
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	return attachResponse.Close
 }
 
 func syncWaitExit(cli *client.Client, ctx context.Context, containerCreateResponse container.ContainerCreateCreatedBody) int {
