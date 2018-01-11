@@ -8,7 +8,7 @@ steps:
     command:
       - sh
       - -c
-      - sleep 3
+      - sleep 5
     environment:
       - TARGET=world
   - step:
@@ -21,4 +21,4 @@ steps:
       - -c
       - echo Hello, $TARGET
     environment:
-      - TARGET=again
+      - TARGET=world

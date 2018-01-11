@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"io"
 	"sync"
+	"github.com/fatih/color"
+	"strings"
 )
 
 type Config struct {
@@ -28,16 +30,7 @@ type Config struct {
 }
 
 func main() {
-	filename := os.Args[1]
-
-	source, err := ioutil.ReadFile(filename)
-
-	if err != nil {
-		panic(err)
-	}
-
-	var config Config
-	err = yaml.Unmarshal(source, &config)
+	err, config := readConfig(os.Args[1])
 
 	if err != nil {
 		panic(err)
@@ -57,6 +50,7 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
+	fgBlue := color.New(color.FgBlue).SprintfFunc()
 
 	for _, step := range config.Steps {
 		wg.Add(1)
@@ -70,7 +64,9 @@ func main() {
 		var hostConfig *container.HostConfig = nil
 		var networkConfig *network.NetworkingConfig = nil
 		containerName := reg.ReplaceAllString(config.Name, "-") + "_" + reg.ReplaceAllString(step.Name, "-")
+		stdoutContainerName := fgBlue("%s%s|", containerName, strings.Repeat(" ", 20-len(containerName)))
 
+		fmt.Printf("%s create\n", stdoutContainerName)
 		containerCreateResponse, err := cli.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, containerName)
 		if err != nil {
 			panic(err)
@@ -78,12 +74,13 @@ func main() {
 
 		// TODO attach container
 
+		fmt.Printf("%s start\n", stdoutContainerName)
 		if err := cli.ContainerStart(ctx, containerCreateResponse.ID, types.ContainerStartOptions{}); err != nil {
 			panic(err)
 		}
 
 		status := syncWaitExit(cli, ctx, containerCreateResponse)
-		fmt.Printf("status %s: %#v\n", containerName, status)
+		fmt.Printf("%s exited with status %#v\n", stdoutContainerName, status)
 		wg.Done()
 
 		out, err := cli.ContainerLogs(ctx, containerCreateResponse.ID, types.ContainerLogsOptions{ShowStdout: true})
@@ -97,6 +94,17 @@ func main() {
 	}
 
 	wg.Wait()
+}
+func readConfig(filename string) (error, *Config) {
+	source, err := ioutil.ReadFile(filename)
+
+	if err != nil {
+		return err, nil
+	}
+
+	var config Config
+	err = yaml.Unmarshal(source, &config)
+	return err, &config
 }
 
 func syncWaitExit(cli *client.Client, ctx context.Context, containerCreateResponse container.ContainerCreateCreatedBody) int {
