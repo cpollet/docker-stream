@@ -7,7 +7,7 @@ is described in a yaml file. You can refer to
 such file.
 
 The idea behind it is to be able to build complex processes while keeping each docker 
-images involved as sinole as possible. It is an attempt to apply the
+images involved as simple as possible. It is an attempt to apply the
 [single responsibility principle](https://en.m.wikipedia.org/wiki/Single_responsibility_principle)
 to docker images.
 
