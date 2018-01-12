@@ -68,6 +68,7 @@ func main() {
 		wg.Done()
 
 		// TODO delete container
+
 	}
 
 	wg.Wait()
@@ -103,6 +104,8 @@ func runStep(ctx context.Context, dockerClient *client.Client, step Step, stdout
 
 	status := syncWaitExit(dockerClient, ctx, containerCreateResponse)
 	fmt.Printf("%s exited with status %#v\n", stdoutContainerName, status)
+
+	dockerClient.ContainerRemove(ctx, containerCreateResponse.ID, types.ContainerRemoveOptions{})
 }
 
 func readConfig(filename string) (error, *Config) {
