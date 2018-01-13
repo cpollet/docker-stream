@@ -31,6 +31,18 @@ type Step struct {
 	Environment []string
 }
 
+type RunContext struct {
+	StepIndex     int
+	Step          Step
+	StreamName    string
+	ContainerName ContainerName
+}
+
+type ContainerName struct {
+	Formatted string
+	Raw       string
+}
+
 func main() {
 	err, config := readConfig(os.Args[1])
 
@@ -62,12 +74,22 @@ func main() {
 	volumes := createVolumes(ctx, dockerClient, config, streamName)
 
 	var wg sync.WaitGroup
-	for _, step := range config.Steps {
+	for i, step := range config.Steps {
 		containerName := streamName + "_" + reg.ReplaceAllString(step.Name, "-")
 		stdoutContainerName := fgBlue("%s%s|", containerName, strings.Repeat(" ", 20-len(containerName)))
 
+		runContext := &RunContext{
+			StepIndex:  i,
+			Step:       step,
+			StreamName: streamName,
+			ContainerName: ContainerName{
+				Formatted: stdoutContainerName,
+				Raw:       containerName,
+			},
+		}
+
 		wg.Add(1)
-		runStep(ctx, dockerClient, step, stdoutContainerName, containerName)
+		runStep(ctx, runContext, dockerClient)
 		wg.Done()
 	}
 	wg.Wait()
@@ -99,20 +121,23 @@ func createVolumes(ctx context.Context, dockerClient *client.Client, config *Con
 	return volumes
 }
 
-func runStep(ctx context.Context, dockerClient *client.Client, step Step, stdoutContainerName string, containerName string) {
+func runStep(ctx context.Context, runContext *RunContext, dockerClient *client.Client) {
 	containerConfig := &container.Config{
-		Image:        step.Image,
-		Cmd:          append([]string{"sh", "-c"}, step.Command...),
-		Env:          step.Environment,
+		Image:        runContext.Step.Image,
+		Cmd:          append([]string{"sh", "-c"}, runContext.Step.Command...),
+		Env:          runContext.Step.Environment,
 		AttachStdout: true,
 		AttachStderr: true,
+		Volumes: map[string]struct{}{
+			":/stream_in": {},
+		},
 	}
 
 	var hostConfig *container.HostConfig = nil
 	var networkConfig *network.NetworkingConfig = nil
 
-	fmt.Printf("%s create\n", stdoutContainerName)
-	containerCreateResponse, err := dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, containerName)
+	fmt.Printf("%s create\n", runContext.ContainerName.Formatted)
+	containerCreateResponse, err := dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, runContext.ContainerName.Raw)
 
 	if err != nil {
 		panic(err)
@@ -121,14 +146,14 @@ func runStep(ctx context.Context, dockerClient *client.Client, step Step, stdout
 	closeStreamFunc := attach(ctx, dockerClient, containerCreateResponse.ID)
 	defer closeStreamFunc()
 
-	fmt.Printf("%s start\n", stdoutContainerName)
+	fmt.Printf("%s start\n", runContext.ContainerName.Formatted)
 
 	if err := dockerClient.ContainerStart(ctx, containerCreateResponse.ID, types.ContainerStartOptions{}); err != nil {
 		panic(err)
 	}
 
 	status := syncWaitExit(dockerClient, ctx, containerCreateResponse)
-	fmt.Printf("%s exited with status %#v\n", stdoutContainerName, status)
+	fmt.Printf("%s exited with status %#v\n", runContext.ContainerName.Formatted, status)
 
 	dockerClient.ContainerRemove(ctx, containerCreateResponse.ID, types.ContainerRemoveOptions{})
 }
