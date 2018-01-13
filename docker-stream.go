@@ -10,12 +10,11 @@ import (
 	"sync"
 	"strings"
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/client"
-	"github.com/fatih/color"
-	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/docker/api/types/volume"
+	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/fatih/color"
 )
 
 type Config struct {
@@ -34,6 +33,8 @@ type Step struct {
 type RunContext struct {
 	StepIndex     int
 	Step          Step
+	First         bool
+	Last          bool
 	StreamName    string
 	ContainerName ContainerName
 }
@@ -81,6 +82,8 @@ func main() {
 		runContext := &RunContext{
 			StepIndex:  i,
 			Step:       step,
+			First:      i == 0,
+			Last:       i == len(config.Steps)-1,
 			StreamName: streamName,
 			ContainerName: ContainerName{
 				Formatted: stdoutContainerName,
@@ -104,10 +107,10 @@ func main() {
 func createVolumes(ctx context.Context, dockerClient *client.Client, config *Config, streamName string) []string {
 	var volumes []string
 
-	for i := 0; i < len(config.Steps); i++ {
+	for i := 0; i < len(config.Steps)-1; i++ {
 		volumeCreate := volume.VolumesCreateBody{
 			Driver: "local",
-			Name:   streamName + "_0",
+			Name:   fmt.Sprintf("%s_%d", streamName, i),
 		}
 
 		volumeCreateResponse, err := dockerClient.VolumeCreate(ctx, volumeCreate)
@@ -128,16 +131,22 @@ func runStep(ctx context.Context, runContext *RunContext, dockerClient *client.C
 		Env:          runContext.Step.Environment,
 		AttachStdout: true,
 		AttachStderr: true,
-		Volumes: map[string]struct{}{
-			":/stream_in": {},
-		},
+		Volumes:      map[string]struct{}{},
 	}
 
-	var hostConfig *container.HostConfig = nil
-	var networkConfig *network.NetworkingConfig = nil
+	hostConfig := &container.HostConfig{}
+
+	if !runContext.First {
+		containerConfig.Volumes["/stream_in"] = struct{}{}
+		hostConfig.Binds = append(hostConfig.Binds, fmt.Sprintf("stream_%d:/stream_in", runContext.StepIndex-1))
+	}
+	if !runContext.Last {
+		containerConfig.Volumes["/stream_out"] = struct{}{}
+		hostConfig.Binds = append(hostConfig.Binds, fmt.Sprintf("stream_%d:/stream_out", runContext.StepIndex))
+	}
 
 	fmt.Printf("%s create\n", runContext.ContainerName.Formatted)
-	containerCreateResponse, err := dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, runContext.ContainerName.Raw)
+	containerCreateResponse, err := dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, nil, runContext.ContainerName.Raw)
 
 	if err != nil {
 		panic(err)

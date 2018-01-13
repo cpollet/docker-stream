@@ -2,14 +2,19 @@ version: '0'
 name: stream
 steps:
   - step:
-    name: echo 1
+    name: someWait
     image: alpine
     command:
       - echo a; sleep 3; echo b; sleep 3; echo c
   - step:
-    name: echo 2
+    name: writeFile
     image: alpine
     command:
-      - echo Hello, $TARGET
+      - echo Hello, $WHO > /stream_out/file
     environment:
-      - TARGET=world
+      - WHO=world
+  - step:
+    name: readFile
+    image: alpine
+    command:
+      - cat /stream_in/file
