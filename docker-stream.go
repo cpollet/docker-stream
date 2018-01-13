@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/fatih/color"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/docker/docker/api/types/volume"
 )
 
 type Config struct {
@@ -26,8 +27,6 @@ type Config struct {
 type Step struct {
 	Name        string
 	Image       string
-	Input       string
-	Output      string
 	Command     []string
 	Environment []string
 }
@@ -56,22 +55,48 @@ func main() {
 		panic(err)
 	}
 
-	var wg sync.WaitGroup
 	fgBlue := color.New(color.FgBlue).SprintfFunc()
 
+	streamName := reg.ReplaceAllString(config.Name, "-")
+
+	volumes := createVolumes(ctx, dockerClient, config, streamName)
+
+	var wg sync.WaitGroup
 	for _, step := range config.Steps {
-		containerName := reg.ReplaceAllString(config.Name, "-") + "_" + reg.ReplaceAllString(step.Name, "-")
+		containerName := streamName + "_" + reg.ReplaceAllString(step.Name, "-")
 		stdoutContainerName := fgBlue("%s%s|", containerName, strings.Repeat(" ", 20-len(containerName)))
 
 		wg.Add(1)
 		runStep(ctx, dockerClient, step, stdoutContainerName, containerName)
 		wg.Done()
+	}
+	wg.Wait()
 
-		// TODO delete container
+	for _, volumeName := range volumes {
+		err = dockerClient.VolumeRemove(ctx, volumeName, true)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+func createVolumes(ctx context.Context, dockerClient *client.Client, config *Config, streamName string) []string {
+	var volumes []string
 
+	for i := 0; i < len(config.Steps); i++ {
+		volumeCreate := volume.VolumesCreateBody{
+			Driver: "local",
+			Name:   streamName + "_0",
+		}
+
+		volumeCreateResponse, err := dockerClient.VolumeCreate(ctx, volumeCreate)
+		if err != nil {
+			panic(err)
+		}
+
+		volumes = append(volumes, volumeCreateResponse.Name)
 	}
 
-	wg.Wait()
+	return volumes
 }
 
 func runStep(ctx context.Context, dockerClient *client.Client, step Step, stdoutContainerName string, containerName string) {

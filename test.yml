@@ -4,15 +4,11 @@ steps:
   - step:
     name: echo 1
     image: alpine
-    input: .
-    output: .
     command:
       - echo a; sleep 3; echo b; sleep 3; echo c
   - step:
     name: echo 2
     image: alpine
-    input: .
-    output: .
     command:
       - echo Hello, $TARGET
     environment:
