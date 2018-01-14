@@ -97,15 +97,26 @@ func main() {
 	}
 	wg.Wait()
 
-	for _, volumeName := range volumes {
-		err = dockerClient.VolumeRemove(ctx, volumeName, true)
-		if err != nil {
-			panic(err)
-		}
+	for _, v := range volumes {
+		v.Close()
 	}
 }
-func createVolumes(ctx context.Context, dockerClient *client.Client, config *Config, streamName string) []string {
-	var volumes []string
+
+type Volume struct {
+	Name          string
+	DockerClient  *client.Client
+	DockerContext context.Context
+}
+
+func (v *Volume) Close() {
+	err := v.DockerClient.VolumeRemove(v.DockerContext, v.Name, true)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func createVolumes(ctx context.Context, dockerClient *client.Client, config *Config, streamName string) []Volume {
+	var volumes []Volume
 
 	for i := 0; i < len(config.Steps)-1; i++ {
 		volumeCreate := volume.VolumesCreateBody{
@@ -118,7 +129,11 @@ func createVolumes(ctx context.Context, dockerClient *client.Client, config *Con
 			panic(err)
 		}
 
-		volumes = append(volumes, volumeCreateResponse.Name)
+		volumes = append(volumes, Volume{
+			Name:          volumeCreateResponse.Name,
+			DockerClient:  dockerClient,
+			DockerContext: ctx,
+		})
 	}
 
 	return volumes
