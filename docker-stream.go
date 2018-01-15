@@ -3,8 +3,6 @@ package main
 import (
 	"github.com/cpollet/docker-stream/docker"
 	"fmt"
-	"gopkg.in/yaml.v2"
-	"io/ioutil"
 	"os"
 	"regexp"
 	"sync"
@@ -13,21 +11,9 @@ import (
 	"github.com/cpollet/docker-stream/stream"
 	"github.com/cpollet/docker-stream/context"
 	"github.com/docker/docker/client"
+	"github.com/cpollet/docker-stream/configuration"
+	"path"
 )
-
-type Config struct {
-	Version string
-	Name    string
-	Steps   []Step
-}
-
-type Step struct {
-	Name        string
-	Image       string
-	Command     []string
-	Environment []string
-	Volumes     []string
-}
 
 func main() {
 	workDir, err := os.Getwd()
@@ -35,13 +21,23 @@ func main() {
 		panic(err)
 	}
 
-	config, err := readConfig(os.Args[1])
+	configFilename := "docker-stream.yml"
+
+	if len(os.Args) > 1 {
+		configFilename = os.Args[1]
+	}
+
+	config, err := configuration.Read(configFilename)
 	if err != nil {
 		panic(err)
 	}
 
 	if config.Version != "0" {
 		panic(fmt.Sprintf("Invalid version: %v", config.Version))
+	}
+
+	if config.Name == "" {
+		config.Name = path.Base(workDir)
 	}
 
 	fmt.Printf("Starting stream %#v\n", config.Name)
@@ -140,16 +136,4 @@ func createVolumes(ctx *context.Context, count int) []docker.Volume {
 	}
 
 	return volumes
-}
-
-func readConfig(filename string) (*Config, error) {
-	source, err := ioutil.ReadFile(filename)
-
-	if err != nil {
-		return nil, err
-	}
-
-	var config Config
-	err = yaml.Unmarshal(source, &config)
-	return &config, err
 }

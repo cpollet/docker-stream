@@ -1,5 +1,5 @@
 version: '0'
-name: stream 1
+#name: stream 1
 steps:
   - step:
     name: someWait
@@ -24,9 +24,9 @@ steps:
     volumes:
       - .:/host
     command:
-      - cp /host/test.yml /stream_out/test.yml
+      - cp /host/docker-stream.yml /stream_out/docker-stream.yml
   - step:
     name: outputStreamFile
     image: alpine
     command:
-      - cat /stream_in/test.yml
+      - cat /stream_in/docker-stream.yml
