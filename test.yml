@@ -1,11 +1,11 @@
 version: '0'
-name: stream
+name: stream 1
 steps:
   - step:
     name: someWait
     image: alpine
     command:
-      - echo a; sleep 3; echo b; sleep 3; echo c
+      - echo a; sleep 1; echo b; sleep 3; echo c
   - step:
     name: writeFile
     image: alpine
@@ -19,9 +19,14 @@ steps:
     command:
       - cat /stream_in/file
   - step:
-    name: outputEtcHosts
+    name: copyStreamFile
     image: alpine
     volumes:
       - .:/host
     command:
-      - cat /host/test.yml
+      - cp /host/test.yml /stream_out/test.yml
+  - step:
+    name: outputStreamFile
+    image: alpine
+    command:
+      - cat /stream_in/test.yml
