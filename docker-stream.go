@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/cpollet/docker-stream/math"
 	"fmt"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
@@ -28,6 +29,7 @@ type Step struct {
 	Image       string
 	Command     []string
 	Environment []string
+	Volumes     []string
 }
 
 type RunContext struct {
@@ -37,6 +39,7 @@ type RunContext struct {
 	Last          bool
 	StreamName    string
 	ContainerName ContainerName
+	Volumes       map[string]string
 }
 
 type ContainerName struct {
@@ -45,6 +48,11 @@ type ContainerName struct {
 }
 
 func main() {
+	workDir, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+
 	err, config := readConfig(os.Args[1])
 
 	if err != nil {
@@ -77,7 +85,7 @@ func main() {
 	var wg sync.WaitGroup
 	for i, step := range config.Steps {
 		containerName := streamName + "_" + reg.ReplaceAllString(step.Name, "-")
-		stdoutContainerName := fgBlue("%s%s|", containerName, strings.Repeat(" ", 20-len(containerName)))
+		stdoutContainerName := fgBlue("%s%s|", containerName, strings.Repeat(" ", math.Max(1, math.Abs(20-len(containerName)))))
 
 		runContext := &RunContext{
 			StepIndex:  i,
@@ -89,6 +97,7 @@ func main() {
 				Formatted: stdoutContainerName,
 				Raw:       containerName,
 			},
+			Volumes: parseMounts(step.Volumes, workDir),
 		}
 
 		wg.Add(1)
@@ -100,6 +109,25 @@ func main() {
 	for _, v := range volumes {
 		v.Close()
 	}
+}
+
+func parseMounts(mounts []string, workDir string) map[string]string {
+	mountsMap := make(map[string]string)
+
+	for _, mount := range mounts {
+		paths := strings.Split(mount, ":")
+		mountsMap[resolveWorkDir(paths[0], workDir)] = paths[1]
+	}
+
+	return mountsMap
+}
+
+func resolveWorkDir(path string, workDir string) string {
+	if !strings.HasPrefix(path, ".") {
+		return path
+	}
+
+	return strings.Replace(path, ".", workDir, 1)
 }
 
 type Volume struct {
@@ -158,6 +186,10 @@ func runStep(ctx context.Context, runContext *RunContext, dockerClient *client.C
 	if !runContext.Last {
 		containerConfig.Volumes["/stream_out"] = struct{}{}
 		hostConfig.Binds = append(hostConfig.Binds, fmt.Sprintf("stream_%d:/stream_out", runContext.StepIndex))
+	}
+	for hostPath, containerPath := range runContext.Volumes {
+		containerConfig.Volumes[containerPath] = struct{}{}
+		hostConfig.Binds = append(hostConfig.Binds, fmt.Sprintf("%s:%s", hostPath, containerPath))
 	}
 
 	fmt.Printf("%s create\n", runContext.ContainerName.Formatted)

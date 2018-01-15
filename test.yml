@@ -18,3 +18,10 @@ steps:
     image: alpine
     command:
       - cat /stream_in/file
+  - step:
+    name: outputEtcHosts
+    image: alpine
+    volumes:
+      - .:/host
+    command:
+      - cat /host/test.yml
