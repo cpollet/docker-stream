@@ -31,6 +31,13 @@ steps:
     command:
       - cat /stream_in/docker-stream.yml
   - step:
+    name: docker
+    image: docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - docker ps -a ; docker volume ls
+  - step:
     name: sleepTooMuch
     image: alpine
     command:
