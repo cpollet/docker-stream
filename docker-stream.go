@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"sync"
 	"strings"
 	apiContext "context"
 	"github.com/cpollet/docker-stream/stream"
@@ -13,9 +12,12 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/cpollet/docker-stream/configuration"
 	"path"
+	"log"
 )
 
 func main() {
+	executionContext := context.HandleSigint()
+
 	workDir, err := os.Getwd()
 	if err != nil {
 		panic(err)
@@ -40,7 +42,7 @@ func main() {
 		config.Name = path.Base(workDir)
 	}
 
-	fmt.Printf("Starting stream %#v\n", config.Name)
+	log.Printf("Starting stream %#v\n", config.Name)
 
 	dockerClient, err := client.NewEnvClient()
 	if err != nil {
@@ -50,41 +52,58 @@ func main() {
 	reg, _ := regexp.Compile("[^a-zA-Z0-9]+")
 
 	ctx := &context.Context{
-		Stream:       reg.ReplaceAllString(config.Name, "-"),
-		WorkDir:      workDir,
-		APIContext:   apiContext.Background(),
-		DockerClient: dockerClient,
+		Stream:           reg.ReplaceAllString(config.Name, "-"),
+		WorkDir:          workDir,
+		APIContext:       apiContext.Background(),
+		DockerClient:     dockerClient,
+		ExecutionContext: executionContext,
 	}
 
 	volumes := createVolumes(ctx, len(config.Steps)-1)
-
 	steps := createSteps(ctx, config, reg)
 
-	var wg sync.WaitGroup
 	for _, step := range steps {
-		wg.Add(1)
+		if !ctx.ExecutionContext.WorkerStart() {
+			break
+		}
 
-		fmt.Printf("\n--\n-- Starting %s...\n--\n", step.ContainerName)
+		log.Printf("Executing %s...\n", step.ContainerName)
 		status := step.RunSync()
-		fmt.Printf("-- Status: %d\n", status)
+		log.Printf("Exit status: %d\n", status)
 
-		wg.Done()
+		ctx.ExecutionContext.WorkerStop()
 	}
-	wg.Wait()
 
-	for _, s := range steps {
-		s.Destroy()
-		fmt.Printf("Container destroyed: %s\n", s.ContainerName)
+	ctx.ExecutionContext.Wait()
+	destroySteps(steps)
+	destroyVolumes(volumes)
+}
+
+func createVolumes(ctx *context.Context, count int) []docker.Volume {
+	var volumes []docker.Volume
+
+	for i := 0; i < count; i++ {
+		if !ctx.ExecutionContext.WorkerStart() {
+			break
+		}
+
+		volumeName := fmt.Sprintf("%s_%d", ctx.Stream, i)
+		volumes = append(volumes, docker.CreateVolume(ctx, volumeName))
+		log.Printf("Volume created: %s\n", volumeName)
+		ctx.ExecutionContext.WorkerStop()
 	}
-	for _, v := range volumes {
-		v.Destroy()
-		fmt.Printf("Volume destroyed: %s\n", v.Name)
-	}
+
+	return volumes
 }
 
 func createSteps(ctx *context.Context, config *configuration.Config, reg *regexp.Regexp) []stream.Step {
 	var steps []stream.Step
+
 	for i, stepConfig := range config.Steps {
+		if !ctx.ExecutionContext.WorkerStart() {
+			break
+		}
+
 		containerName := ctx.Stream + "_" + reg.ReplaceAllString(stepConfig.Name, "-")
 
 		step := stream.CreateStep(
@@ -102,8 +121,10 @@ func createSteps(ctx *context.Context, config *configuration.Config, reg *regexp
 		)
 		steps = append(steps, step)
 
-		fmt.Printf("Container created: %s\n", containerName)
+		log.Printf("Container created: %s\n", containerName)
+		ctx.ExecutionContext.WorkerStop()
 	}
+
 	return steps
 }
 
@@ -126,14 +147,16 @@ func resolveWorkDir(path string, workDir string) string {
 	return strings.Replace(path, ".", workDir, 1)
 }
 
-func createVolumes(ctx *context.Context, count int) []docker.Volume {
-	var volumes []docker.Volume
-
-	for i := 0; i < count; i++ {
-		volumeName := fmt.Sprintf("%s_%d", ctx.Stream, i)
-		volumes = append(volumes, docker.CreateVolume(ctx, volumeName))
-		fmt.Printf("Volume created: %s\n", volumeName)
+func destroySteps(steps []stream.Step) {
+	for _, s := range steps {
+		s.Destroy()
+		log.Printf("Container destroyed: %s\n", s.ContainerName)
 	}
+}
 
-	return volumes
+func destroyVolumes(volumes []docker.Volume) {
+	for _, v := range volumes {
+		v.Destroy()
+		log.Printf("Volume destroyed: %s\n", v.Name)
+	}
 }

@@ -30,3 +30,8 @@ steps:
     image: alpine
     command:
       - cat /stream_in/docker-stream.yml
+  - step:
+    name: sleepTooMuch
+    image: alpine
+    command:
+      - echo please kill me; sleep 5

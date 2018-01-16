@@ -6,8 +6,9 @@ import (
 )
 
 type Context struct {
-	Stream       string
-	WorkDir      string
-	DockerClient *client.Client
-	APIContext   context.Context
+	Stream           string
+	WorkDir          string
+	DockerClient     *client.Client
+	APIContext       context.Context
+	ExecutionContext *ExecutionContext
 }
