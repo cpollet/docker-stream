@@ -34,4 +34,4 @@ steps:
     name: sleepTooMuch
     image: alpine
     command:
-      - echo please kill me; sleep 5
+      - echo "please kill me (or wait 10 sec)"; sleep 10

@@ -36,6 +36,19 @@ func (c *Container) StartSync() int {
 		panic(err)
 	}
 
+	sigChan := c.context.ExecutionContext.SignalChan()
+	go func(termChan chan string) {
+		for ; ; {
+			signal := <-termChan
+			if signal == "__CLOSE__" {
+				break
+			}
+
+			c.context.DockerClient.ContainerKill(c.context.APIContext, c.ID, signal)
+		}
+	}(sigChan)
+	defer func() { sigChan <- "__CLOSE__" }()
+
 	return syncWaitExit(c.context, c.ID)
 }
 
@@ -73,7 +86,7 @@ func syncWaitExit(ctx *context.Context, containerId string) int {
 func waitExit(ctx *context.Context, containerId string) chan int {
 	statusChan := make(chan int)
 
-	resultChan, errChan := ctx.DockerClient.ContainerWait(ctx.APIContext, containerId, container.WaitConditionNextExit)
+	resultChan, errChan := ctx.DockerClient.ContainerWait(ctx.APIContext, containerId, container.WaitConditionNotRunning)
 	go func() {
 		select {
 		case err := <-errChan:
