@@ -35,8 +35,8 @@ func main() {
 				}
 
 				commands.Run(&commands.RunConfiguration{
-					Keep:     c.Bool("keep"),
 					WorkDir:  workDir,
+					Keep:     c.Bool("keep"),
 					Filename: c.String("file"),
 				})
 

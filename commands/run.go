@@ -15,8 +15,8 @@ import (
 )
 
 type RunConfiguration struct {
-	Keep     bool
 	WorkDir  string
+	Keep     bool
 	Filename string
 }
 
