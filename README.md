@@ -10,3 +10,10 @@ possible. It is an attempt to apply the [single responsibility principle](https:
 to docker images.
 
 This project is a POC to validate this idea.
+
+## Run
+```
+go get ./...
+go run -ldflags "-X main.gitHash=$(git rev-parse HEAD)" docker-stream.go
+go install -ldflags "-X main.gitHash=$(git rev-parse HEAD)"
+```

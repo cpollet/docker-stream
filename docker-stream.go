@@ -4,14 +4,17 @@ import (
 	"github.com/urfave/cli"
 	"os"
 	"github.com/cpollet/docker-stream/commands"
+	"fmt"
 )
+
+var gitHash string
 
 func main() {
 	app := cli.NewApp()
 
 	app.Name = "docker-stream"
 	app.Usage = "chain docker containers execution as a stream"
-	app.Version = "0.0.0"
+	app.Version = fmt.Sprintf("0.0.0 (git hash: %s)", gitHash)
 
 	app.Commands = []cli.Command{
 		{
