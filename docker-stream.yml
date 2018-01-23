@@ -1,44 +1,36 @@
 version: '0'
-#name: stream 1
 steps:
-  - step:
-    name: someWait
+  someWait:
     image: alpine
     command:
       - echo a; sleep 1; echo b; sleep 1; echo c
-  - step:
-    name: writeFile
+  writeFile:
     image: alpine
     command:
       - echo Hello, $WHO > /stream_out/file
     environment:
       - WHO=world
-  - step:
-    name: readFile
+  readFile:
     image: alpine
     command:
       - cat /stream_in/file
-  - step:
-    name: copyStreamFile
+  copyStreamFile:
     image: alpine
     volumes:
       - .:/host
     command:
       - cp /host/docker-stream.yml /stream_out/docker-stream.yml
-  - step:
-    name: outputStreamFile
+  outputStreamFile:
     image: alpine
     command:
       - cat /stream_in/docker-stream.yml
-  - step:
-    name: docker
+  docker:
     image: docker
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command:
       - docker ps -a ; docker volume ls
-  - step:
-    name: sleepTooMuch
+  sleepTooMuch:
     image: alpine
     command:
       - echo "please kill me (or wait 10 sec)"; sleep 10
